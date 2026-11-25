@@ -7,6 +7,9 @@ jobs:
   build:
     name: 一键编译未签名 IPA
     runs-on: macos-15-intel
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - name: 安装 XcodeGen
         run: brew install xcodegen
@@ -315,11 +318,30 @@ jobs:
 
       - name: 打包未签名 IPA
         run: |
-          APP_PATH="$(find build/Archive/YitaiPlatform.xcarchive/Products/Applications -name '*.app' | head -1)"
+          set -euo pipefail
+          ARCHIVE_PATH="build/Archive/YitaiPlatform.xcarchive"
+          APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -name '*.app' | head -1)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "未在归档目录找到 .app："
+            find "$ARCHIVE_PATH" -maxdepth 5 -type f -o -type d || true
+            exit 1
+          fi
+
+          echo "找到 App：$APP_PATH"
           rm -rf build/Payload build/YitaiPlatform-unsigned.ipa
           mkdir -p build/Payload
           cp -R "$APP_PATH" build/Payload/
-          (cd build && zip -r -q ../YitaiPlatform-unsigned.ipa Payload)
+
+          # 压缩包必须生成在 build 目录下，与上传步骤的 path 保持一致。
+          (cd build && zip -r -q YitaiPlatform-unsigned.ipa Payload)
+
+          if [ ! -f build/YitaiPlatform-unsigned.ipa ]; then
+            echo "IPA 未生成，请检查上面的归档目录内容。"
+            exit 1
+          fi
+
+          ls -lh build/YitaiPlatform-unsigned.ipa
 
       - name: 上传 IPA 产物
         uses: actions/upload-artifact@v4

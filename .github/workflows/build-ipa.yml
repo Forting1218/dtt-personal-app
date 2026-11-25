@@ -1,0 +1,329 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 一键编译未签名 IPA
+    runs-on: macos-14
+    steps:
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 iOS 工程文件
+        run: |
+          mkdir -p YitaiPlatform/App
+
+          cat > project.yml <<'YAML'
+          name: YitaiPlatform
+          options:
+            deploymentTarget:
+              iOS: "15.0"
+          targets:
+            YitaiPlatform:
+              type: application
+              platform: iOS
+              sources:
+                - path: YitaiPlatform
+              info:
+                path: YitaiPlatform/Info.plist
+                properties:
+                  CFBundleDisplayName: 仪态
+                  CFBundleName: YitaiPlatform
+                  UILaunchScreen: {}
+                  UISupportedInterfaceOrientations:
+                    - UIInterfaceOrientationPortrait
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.yitai.hhht
+                  PRODUCT_NAME: YitaiPlatform
+                  MARKETING_VERSION: 1.0.0
+                  CURRENT_PROJECT_VERSION: 1
+                  TARGETED_DEVICE_FAMILY: "1,2"
+                  SWIFT_VERSION: "5.0"
+          YAML
+
+          cat > YitaiPlatform/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>zh_CN</string>
+            <key>CFBundleDisplayName</key>
+            <string>仪态</string>
+            <key>CFBundleExecutable</key>
+            <string>$(EXECUTABLE_NAME)</string>
+            <key>CFBundleIdentifier</key>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>$(PRODUCT_NAME)</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>$(MARKETING_VERSION)</string>
+            <key>CFBundleVersion</key>
+            <string>$(CURRENT_PROJECT_VERSION)</string>
+            <key>LSRequiresIPhoneOS</key>
+            <true/>
+            <key>UILaunchScreen</key>
+            <dict/>
+            <key>UISupportedInterfaceOrientations</key>
+            <array>
+              <string>UIInterfaceOrientationPortrait</string>
+            </array>
+            <key>NSAppTransportSecurity</key>
+            <dict>
+              <key>NSAllowsArbitraryLoads</key>
+              <false/>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+
+          cat > YitaiPlatform/App/AppConfig.swift <<'SWIFT'
+          import Foundation
+
+          enum AppConfig {
+              static let webURL = URL(string: "https://4mhqkmzkdtr06.doubao.link/app/app_17ja5qbm24n/")!
+              static let appName = "仪态"
+              static let userAgentSuffix = " YitaiiOS/1.0.0"
+              static let timeoutInterval: TimeInterval = 30
+          }
+          SWIFT
+
+          cat > YitaiPlatform/App/WebView.swift <<'SWIFT'
+          import SwiftUI
+          import WebKit
+
+          struct WebView: UIViewRepresentable {
+              @Binding var isLoading: Bool
+              @Binding var loadError: Error?
+
+              func makeCoordinator() -> Coordinator {
+                  Coordinator(isLoading: $isLoading, loadError: $loadError)
+              }
+
+              func makeUIView(context: Context) -> WKWebView {
+                  let configuration = WKWebViewConfiguration()
+                  let preferences = WKPreferences()
+                  preferences.javaScriptEnabled = true
+                  preferences.javaScriptCanOpenWindowsAutomatically = true
+                  configuration.preferences = preferences
+                  configuration.websiteDataStore = WKWebsiteDataStore.default()
+
+                  let webView = WKWebView(frame: .zero, configuration: configuration)
+                  webView.navigationDelegate = context.coordinator
+                  webView.uiDelegate = context.coordinator
+                  webView.scrollView.showsVerticalScrollIndicator = true
+                  webView.scrollView.showsHorizontalScrollIndicator = false
+                  webView.scrollView.bounces = true
+
+                  if let baseAgent = webView.customUserAgent {
+                      webView.customUserAgent = baseAgent + AppConfig.userAgentSuffix
+                  } else {
+                      webView.customUserAgent = "YitaiiOS/1.0.0"
+                  }
+
+                  webView.load(URLRequest(url: AppConfig.webURL, timeoutInterval: AppConfig.timeoutInterval))
+                  return webView
+              }
+
+              func updateUIView(_ webView: WKWebView, context: Context) {}
+
+              final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+                  @Binding var isLoading: Bool
+                  @Binding var loadError: Error?
+
+                  init(isLoading: Binding<Bool>, loadError: Binding<Error?>) {
+                      _isLoading = isLoading
+                      _loadError = loadError
+                  }
+
+                  func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+                      isLoading = true
+                      loadError = nil
+                  }
+
+                  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+                      isLoading = false
+                      loadError = nil
+                  }
+
+                  func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+                      isLoading = false
+                      loadError = error
+                  }
+
+                  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+                      isLoading = false
+                      loadError = error
+                  }
+
+                  func webView(
+                      _ webView: WKWebView,
+                      decidePolicyFor navigationAction: WKNavigationAction,
+                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+                  ) {
+                      decisionHandler(.allow)
+                  }
+
+                  func webView(
+                      _ webView: WKWebView,
+                      decidePolicyFor navigationResponse: WKNavigationResponse,
+                      decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+                  ) {
+                      decisionHandler(.allow)
+                  }
+
+                  func webView(
+                      _ webView: WKWebView,
+                      createWebViewWith configuration: WKWebViewConfiguration,
+                      for navigationAction: WKNavigationAction,
+                      windowFeatures: WKWindowFeatures
+                  ) -> WKWebView? {
+                      if let url = navigationAction.request.url {
+                          webView.load(URLRequest(url: url, timeoutInterval: AppConfig.timeoutInterval))
+                      }
+                      return nil
+                  }
+              }
+          }
+          SWIFT
+
+          cat > YitaiPlatform/App/RootView.swift <<'SWIFT'
+          import SwiftUI
+
+          struct RootView: View {
+              @State private var isLoading = true
+              @State private var loadError: Error?
+              @State private var reloadToken = 0
+
+              var body: some View {
+                  ZStack {
+                      Color(red: 241 / 255, green: 245 / 255, blue: 249 / 255)
+                          .ignoresSafeArea()
+
+                      WebView(
+                          isLoading: $isLoading,
+                          loadError: $loadError
+                      )
+                      .id(reloadToken)
+                      .ignoresSafeArea()
+
+                      if let error = loadError {
+                          OfflineErrorView(error: error) {
+                              reloadToken += 1
+                              loadError = nil
+                              isLoading = true
+                          }
+                      }
+
+                      if isLoading && loadError == nil {
+                          loadingOverlay
+                      }
+                  }
+              }
+
+              private var loadingOverlay: some View {
+                  ZStack {
+                      Color(red: 241 / 255, green: 245 / 255, blue: 249 / 255)
+                          .ignoresSafeArea()
+                      VStack(spacing: 16) {
+                          ProgressView()
+                              .controlSize(.large)
+                          Text("正在加载「\(AppConfig.appName)」…")
+                              .font(.system(size: 15, weight: .medium))
+                              .foregroundColor(Color(red: 51 / 255, green: 65 / 255, blue: 85 / 255))
+                      }
+                  }
+              }
+          }
+
+          struct OfflineErrorView: View {
+              let error: Error
+              let retry: () -> Void
+
+              var body: some View {
+                  VStack(spacing: 18) {
+                      Image(systemName: "wifi.exclamationmark")
+                          .font(.system(size: 48, weight: .medium))
+                          .foregroundColor(Color(red: 13 / 255, green: 107 / 255, blue: 87 / 255))
+
+                      Text("工作台暂时无法打开")
+                          .font(.system(size: 20, weight: .bold))
+
+                      Text("请检查手机网络后重试。若公司内网或 VPN 未连接，请先接入对应网络。")
+                          .font(.system(size: 14))
+                          .multilineTextAlignment(.center)
+                          .foregroundColor(Color(red: 100 / 255, green: 116 / 255, blue: 139 / 255))
+                          .padding(.horizontal, 32)
+
+                      Text(error.localizedDescription)
+                          .font(.system(size: 12))
+                          .foregroundColor(Color(red: 148 / 255, green: 163 / 255, blue: 184 / 255))
+
+                      Button(action: retry) {
+                          Text("重新加载")
+                              .font(.system(size: 16, weight: .semibold))
+                              .foregroundColor(.white)
+                              .padding(.horizontal, 28)
+                              .padding(.vertical, 12)
+                              .background(Color(red: 13 / 255, green: 107 / 255, blue: 87 / 255))
+                              .cornerRadius(12)
+                      }
+                  }
+                  .padding(24)
+                  .background(Color.white)
+                  .cornerRadius(18)
+                  .padding(28)
+              }
+          }
+          SWIFT
+
+          cat > YitaiPlatform/App/YitaiApp.swift <<'SWIFT'
+          import SwiftUI
+
+          @main
+          struct YitaiApp: App {
+              var body: some Scene {
+                  WindowGroup {
+                      RootView()
+                  }
+              }
+          }
+          SWIFT
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 归档编译
+        run: |
+          xcodebuild archive \
+            -project YitaiPlatform.xcodeproj \
+            -scheme YitaiPlatform \
+            -configuration Release \
+            -archivePath build/Archive/YitaiPlatform.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: 打包未签名 IPA
+        run: |
+          APP_PATH="$(find build/Archive/YitaiPlatform.xcarchive/Products/Applications -name '*.app' | head -1)"
+          rm -rf build/Payload build/YitaiPlatform-unsigned.ipa
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          (cd build && zip -r -q ../YitaiPlatform-unsigned.ipa Payload)
+
+      - name: 上传 IPA 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: YitaiPlatform-unsigned-1.0.0
+          path: build/YitaiPlatform-unsigned.ipa
+          retention-days: 30
